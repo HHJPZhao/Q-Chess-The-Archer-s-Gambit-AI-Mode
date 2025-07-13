@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Q Chess: The Archer's Gambit AI Mode</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --board-bg: #e3b778;
+            --line-color: #6d4c41;
+            --palace-line-color: #a1887f;
+            --red-piece-bg: #fbe9e7;
+            --red-piece-color: #c62828;
+            --black-piece-bg: #eceff1;
+            --black-piece-color: #263238;
+        }
+        .board-container {
+            width: 482px; /* (8 intervals * 60px) + 2px border */
+            height: 542px; /* (9 intervals * 60px) + 2px border */
+            background-color: var(--board-bg);
+            border: 2px solid var(--line-color);
+            position: relative;
+            box-sizing: content-box;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -2px rgba(0, 0, 0, 0.1);
+        }
+        .grid-line {
+            position: absolute;
+            background-color: var(--line-color);
+            z-index: 1;
+        }
+        .h-line { 
+            width: 100%; 
+            height: 2px; 
+            left: 0;
+        }
+        .v-line { 
+            height: 100%; 
+            width: 2px;
+            top: 0;
+        }
+        .river {
+            position: absolute;
+            width: 100%;
+            height: 60px;
+            top: 240px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'ZCOOL+KuaiLe', cursive;
+            font-size: 2.5rem;
+            color: #b38b5d;
+            letter-spacing: 1.5rem;
+            pointer-events: none;
+            z-index: 2;
+        }
+        .palace {
+            position: absolute;
+            z-index: 1;
+        }
+        .palace-line {
+            position: absolute;
+            background-color: var(--palace-line-color);
+            width: 2px;
+            height: 169.7px; /* sqrt(120^2 + 120^2) */
+        }
+        .piece {
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 32px;
+            font-weight: bold;
+            position: absolute;
+            z-index: 3;
+            cursor: pointer;
+            transition: transform 0.1s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        .red-piece {
+            background-color: var(--red-piece-bg);
+            border: 2px solid var(--red-piece-color);
+            color: var(--red-piece-color);
+        }
+        .black-piece {
+            background-color: var(--black-piece-bg);
+            border: 2px solid var(--black-piece-color);
+            color: var(--black-piece-color);
+        }
+        .selected {
+            transform: scale(1.1);
+            box-shadow: 0 0 15px 5px #f1c40f;
+        }
+        .valid-move-dot {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background-color: rgba(46, 204, 113, 0.7);
+            border-radius: 50%;
+            z-index: 4;
+            cursor: pointer;
+        }
+        .check-highlight {
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.7); }
+            70% { box-shadow: 0 0 10px 15px rgba(255, 0, 0, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0); }
+        }
+    </style>
+</head>
+<body class="bg-[#3d281a] flex flex-col justify-center items-center min-h-screen p-4">
+    <h1 class="text-4xl font-bold mb-4 text-white">Xiangqi: The Archer's Gambit</h1>
+    <div class="flex flex-col md:flex-row gap-8 items-center">
+        <div id="board-container" class="board-container"></div>
+        <div class="w-64 text-center">
+            <div id="game-status" class="text-2xl font-bold mb-4 p-4 bg-black bg-opacity-20 rounded-lg">Red's Turn</div>
+            <div id="player-choice" class="mb-4">
+                <h3 class="text-xl mb-2">Play as:</h3>
+                <button id="play-red" class="px-4 py-2 bg-red-700 rounded">Red (First)</button>
+                <button id="play-black" class="px-4 py-2 bg-gray-800 text-white rounded">Black (Second)</button>
+            </div>
+            <button id="reset-button" class="w-full px-5 py-3 text-lg cursor-pointer border-none rounded-md bg-indigo-600 text-white hover:bg-indigo-700">New Game</button>
+        </div>
+    </div>
+
+<script>
+    class XiangqiGameEngine {
+        constructor() {
+            this.COLS = 9;
+            this.ROWS = 10;
+            this.SQUARES = this.COLS * this.ROWS;
+            this.reset();
+        }
+
+        reset() {
+            this.board = new Array(this.ROWS * this.COLS).fill(null);
+            this.isRedTurn = true;
+            this.isGameOver = false;
+            const setup = {
+                0: 'r', 1: 'h', 2: 'e', 3: 'a', 4: 'k', 5: 'a', 6: 'e', 7: 'h', 8: 'r',
+                19: 'c', 25: 'c',
+                27: 's', 29: 'w', 31: 's', 33: 'w', 35: 's',
+                81: 'R', 82: 'H', 83: 'E', 84: 'A', 85: 'K', 86: 'A', 87: 'E', 88: 'H', 89: 'R',
+                64: 'C', 70: 'C',
+                54: 'S', 56: 'W', 58: 'S', 60: 'W', 62: 'S',
+            };
+            for (const i in setup) {
+                this.board[i] = setup[i];
+            }
+        }
+
+        isRedPiece(piece) {
+            return piece && piece.toUpperCase() === piece;
+        }
+
+        isPieceOfCurrentTurn(piece) {
+            if (!piece) return false;
+            return this.isRedTurn === this.isRedPiece(piece);
+        }
+
+        movePiece(from, to, boardState = this.board) {
+            const piece = boardState[from];
+            if (!piece || !this.isPieceOfCurrentTurn(piece)) return false;
+            
+            const validMoves = this.getValidMoves(piece, from, boardState);
+            if (!validMoves.includes(to)) return false;
+
+            const tempBoard = [...boardState];
+            tempBoard[to] = tempBoard[from];
+            tempBoard[from] = null;
+            if (this.isKingInCheck(this.isRedTurn, tempBoard)) {
+                return false;
+            }
+
+            this.board = tempBoard;
+            this.isRedTurn = !this.isRedTurn;
+
+            if (this.isKingInCheck(this.isRedTurn)) {
+                if (this.isCheckmate(this.isRedTurn)) {
+                    this.isGameOver = true;
+                }
+            }
+            return true;
+        }
+        
+        isKingInCheck(isRed, boardState = this.board) {
+            const kingChar = isRed ? 'K' : 'k';
+            const kingIndex = boardState.indexOf(kingChar);
+            if (kingIndex === -1) return true; 
+
+            for (let i = 0; i < this.SQUARES; i++) {
+                const piece = boardState[i];
+                if (piece && this.isRedPiece(piece) !== isRed) {
+                    const moves = this.getValidMoves(piece, i, boardState, true);
+                    if (moves.includes(kingIndex)) return true;
+                }
+            }
+            return false;
+        }
+
+        isCheckmate(isRed) {
+            for (let i = 0; i < this.SQUARES; i++) {
+                const piece = this.board[i];
+                if (piece && this.isRedPiece(piece) === isRed) {
+                    const moves = this.getValidMoves(piece, i);
+                    for (const move of moves) {
+                        const tempBoard = [...this.board];
+                        tempBoard[move] = tempBoard[i];
+                        tempBoard[i] = null;
+                        if (!this.isKingInCheck(isRed, tempBoard)) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
+        getCoords(index) {
+            return { row: Math.floor(index / this.COLS), col: index % this.COLS };
+        }
+
+        getIndex(row, col) {
+            return row * this.COLS + col;
+        }
+
+        getValidMoves(piece, index, boardState = this.board, isForCheck = false) {
+            const moves = [];
+            const { row: r, col: c } = this.getCoords(index);
+            const pieceIsRed = this.isRedPiece(piece);
+            
+            const isOnBoard = (row, col) => row >= 0 && row < this.ROWS && col >= 0 && col < this.COLS;
+
+            switch (piece.toLowerCase()) {
+                case 'k':
+                    [[-1,0],[1,0],[0,-1],[0,1]].forEach(([rd,cd]) => {
+                        const newR = r + rd, newC = c + cd;
+                        if (isOnBoard(newR, newC) && newC >= 3 && newC <= 5 && ( (pieceIsRed && newR >= 7) || (!pieceIsRed && newR <= 2) )) {
+                            const targetIndex = this.getIndex(newR, newC);
+                            const targetPiece = boardState[targetIndex];
+                            if (!targetPiece || this.isRedPiece(targetPiece) !== pieceIsRed) moves.push(targetIndex);
+                        }
+                    });
+                    const opponentKing = pieceIsRed ? 'k' : 'K';
+                    const opponentKingIndex = boardState.indexOf(opponentKing);
+                    if (opponentKingIndex !== -1) {
+                        const { col: kingCol } = this.getCoords(opponentKingIndex);
+                        if (c === kingCol) {
+                            let clearPath = true;
+                            for (let i = Math.min(r, this.getCoords(opponentKingIndex).row) + 1; i < Math.max(r, this.getCoords(opponentKingIndex).row); i++) {
+                                if (boardState[this.getIndex(i, c)]) {
+                                    clearPath = false;
+                                    break;
+                                }
+                            }
+                            if (clearPath) moves.push(opponentKingIndex);
+                        }
+                    }
+                    break;
+
+                case 'a':
+                    [[-1,-1],[-1,1],[1,-1],[1,1]].forEach(([rd,cd]) => {
+                        const newR = r + rd, newC = c + cd;
+                        if (isOnBoard(newR, newC) && newC >= 3 && newC <= 5 && ( (pieceIsRed && newR >= 7) || (!pieceIsRed && newR <= 2) )) {
+                            const targetIndex = this.getIndex(newR, newC);
+                            const targetPiece = boardState[targetIndex];
+                            if (!targetPiece || this.isRedPiece(targetPiece) !== pieceIsRed) moves.push(targetIndex);
+                        }
+                    });
+                    break;
+                
+                case 'e':
+                    [[-2,-2],[-2,2],[2,-2],[2,2]].forEach(([rd,cd]) => {
+                        const newR = r + rd, newC = c + cd;
+                        const river = pieceIsRed ? 4 : 5;
+                        if (isOnBoard(newR, newC) && ( (pieceIsRed && newR > river) || (!pieceIsRed && newR < river) )) {
+                            const blockIndex = this.getIndex(r + rd/2, c + cd/2);
+                            if (!boardState[blockIndex]) {
+                                const targetIndex = this.getIndex(newR, newC);
+                                const targetPiece = boardState[targetIndex];
+                                if (!targetPiece || this.isRedPiece(targetPiece) !== pieceIsRed) moves.push(targetIndex);
+                            }
+                        }
+                    });
+                    break;
+
+                case 'h':
+                    [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]].forEach(([rd,cd]) => {
+                        if(isOnBoard(r+rd, c+cd)){
+                            const hobble_r_offset = Math.abs(rd) > Math.abs(cd) ? Math.sign(rd) : 0;
+                            const hobble_c_offset = Math.abs(cd) > Math.abs(rd) ? Math.sign(cd) : 0;
+                            const hobbleIndex = this.getIndex(r + hobble_r_offset, c + hobble_c_offset);
+                            if(!boardState[hobbleIndex]){
+                                const targetIndex = this.getIndex(r+rd, c+cd);
+                                const targetPiece = boardState[targetIndex];
+                                if (!targetPiece || this.isRedPiece(targetPiece) !== pieceIsRed) moves.push(targetIndex);
+                            }
+                        }
+                    });
+                    break;
+
+                case 'r':
+                     [[-1,0],[1,0],[0,-1],[0,1]].forEach(([rd,cd]) => {
+                        let temp_r = r + rd, temp_c = c + cd;
+                        while(isOnBoard(temp_r, temp_c)){
+                            const i = this.getIndex(temp_r, temp_c);
+                            if(boardState[i]){
+                                if(this.isRedPiece(boardState[i]) !== pieceIsRed) moves.push(i);
+                                break;
+                            }
+                            moves.push(i);
+                            temp_r += rd; temp_c += cd;
+                        }
+                    });
+                    break;
+                
+                case 'c':
+                    [[-1,0],[1,0],[0,-1],[0,1]].forEach(([rd,cd]) => {
+                        let temp_r = r + rd, temp_c = c + cd;
+                        let screenFound = false;
+                        while(isOnBoard(temp_r, temp_c)){
+                            const i = this.getIndex(temp_r, temp_c);
+                            const currentCell = boardState[i];
+                            if(currentCell){
+                                if(!screenFound){
+                                    screenFound = true; 
+                                } else { 
+                                    if(this.isRedPiece(currentCell) !== pieceIsRed) moves.push(i);
+                                    break; 
+                                }
+                            } else {
+                                if (!screenFound) moves.push(i);
+                            }
+                            temp_r += rd; temp_c += cd;
+                        }
+                    });
+                    break;
+                
+                case 's':
+                    const forwardDir = pieceIsRed ? -1 : 1;
+                    if (isOnBoard(r + forwardDir, c)) {
+                        const targetIndex = this.getIndex(r + forwardDir, c);
+                        const targetPiece = boardState[targetIndex];
+                        if (!targetPiece || this.isRedPiece(targetPiece) !== pieceIsRed) moves.push(targetIndex);
+                    }
+                    const river = pieceIsRed ? 4 : 5;
+                    if ((pieceIsRed && r <= river) || (!pieceIsRed && r >= river)) {
+                        [[0,-1],[0,1]].forEach(([rd,cd]) => {
+                            if (isOnBoard(r+rd, c+cd)) {
+                                const targetIndex = this.getIndex(r+rd, c+cd);
+                                const targetPiece = boardState[targetIndex];
+                                if (!targetPiece || this.isRedPiece(targetPiece) !== pieceIsRed) moves.push(targetIndex);
+                            }
+                        });
+                    }
+                    break;
+                
+                case 'w':
+                    const archerMoveDirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+                    archerMoveDirs.forEach(([rd, cd]) => {
+                        if (isOnBoard(r+rd, c+cd)) {
+                            const targetIndex = this.getIndex(r+rd, c+cd);
+                            if (!boardState[targetIndex]) moves.push(targetIndex);
+                        }
+                    });
+                    const archerCaptureDirs = [[-2,0],[2,0],[0,-2],[0,2],[-2,-2],[-2,2],[2,-2],[2,2]];
+                    archerCaptureDirs.forEach(([rd,cd]) => {
+                         if(isOnBoard(r+rd, c+cd)){
+                            const targetIndex = this.getIndex(r+rd, c+cd);
+                            const targetCell = boardState[targetIndex];
+                            if(targetCell && this.isRedPiece(targetCell) !== pieceIsRed) {
+                                moves.push(targetIndex);
+                            }
+                        }
+                    });
+                    break;
+            }
+            return moves;
+        }
+    }
+
+    class AIPlayer {
+        constructor(game) {
+            this.game = game;
+            this.pieceScores = { 'k': 900, 'r': 90, 'h': 40, 'e': 20, 'a': 20, 'c': 45, 's': 10, 'w': 35 };
+        }
+
+        evaluateBoard(board) {
+            let score = 0;
+            board.forEach((p, i) => {
+                if (p) {
+                    const pieceScore = this.pieceScores[p.toLowerCase()];
+                    score += this.game.isRedPiece(p) ? pieceScore : -pieceScore;
+                }
+            });
+            return score;
+        }
+
+        findBestMove() {
+            let bestMove = null;
+            let bestScore = this.game.isRedTurn ? -Infinity : Infinity;
+            
+            for (let i = 0; i < this.game.SQUARES; i++) {
+                const piece = this.game.board[i];
+                if (piece && this.game.isPieceOfCurrentTurn(piece)) {
+                    const moves = this.game.getValidMoves(piece, i);
+                    for (const move of moves) {
+                        const tempBoard = [...this.game.board];
+                        tempBoard[move] = tempBoard[i];
+                        tempBoard[i] = null;
+                        
+                        // If the move gets the AI out of check, it's a valid candidate
+                        if (!this.game.isKingInCheck(this.game.isRedTurn, tempBoard)) {
+                            const score = this.evaluateBoard(tempBoard);
+                            if (this.game.isRedTurn) {
+                                if (score > bestScore) {
+                                    bestScore = score;
+                                    bestMove = { from: i, to: move };
+                                }
+                            } else {
+                                if (score < bestScore) {
+                                    bestScore = score;
+                                    bestMove = { from: i, to: move };
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return bestMove;
+        }
+    }
+
+    class GameUI {
+        constructor(containerId) {
+            this.container = document.getElementById(containerId);
+            this.game = new XiangqiGameEngine();
+            this.ai = new AIPlayer(this.game);
+            this.SQUARE_SIZE = 60;
+            this.pieceDisplay = {
+                'k': { red: '帥', black: '將' }, 'a': { red: '士', black: '仕' },
+                'e': { red: '相', black: '象' }, 'h': { red: '傌', black: '馬' },
+                'r': { red: '車', black: '車' }, 'c': { red: '砲', black: '炮' },
+                's': { red: '兵', black: '卒' }, 'w': { red: '弩', black: '弓' }
+            };
+            this.resetButton = document.getElementById('reset-button');
+            this.statusEl = document.getElementById('game-status');
+            this.playRedBtn = document.getElementById('play-red');
+            this.playBlackBtn = document.getElementById('play-black');
+            
+            this.selectedPieceIndex = null;
+            this.validMoves = [];
+            this.humanPlayerIsRed = true;
+            this.isTurnInProgress = false;
+
+            this.resetButton.addEventListener('click', () => this.initialize());
+            this.playRedBtn.addEventListener('click', () => this.startGame(true));
+            this.playBlackBtn.addEventListener('click', () => this.startGame(false));
+            this.initialize();
+        }
+
+        initialize() {
+            this.game.reset();
+            this.selectedPieceIndex = null;
+            this.validMoves = [];
+            this.isTurnInProgress = false;
+            this.drawBoard();
+            this.updateStatus();
+        }
+        
+        startGame(isHumanRed) {
+            this.humanPlayerIsRed = isHumanRed;
+            this.initialize();
+            if (!isHumanRed) {
+                this.checkForAITurn();
+            }
+        }
+
+        drawBoard() {
+            this.container.innerHTML = '';
+            // Draw grid lines and board structure
+            for (let i = 0; i < this.game.ROWS; i++) {
+                const line = document.createElement('div');
+                line.className = 'grid-line h-line';
+                line.style.top = `${i * this.SQUARE_SIZE}px`;
+                this.container.appendChild(line);
+            }
+            for (let i = 0; i < this.game.COLS; i++) {
+                const line = document.createElement('div');
+                line.className = 'grid-line v-line';
+                line.style.left = `${i * this.SQUARE_SIZE}px`;
+                if (i === 0 || i === 8) {
+                     this.container.appendChild(line);
+                } else {
+                    const topHalf = line.cloneNode();
+                    topHalf.style.height = `${4 * this.SQUARE_SIZE}px`;
+                    this.container.appendChild(topHalf);
+                    const bottomHalf = line.cloneNode();
+                    bottomHalf.style.top = `${5 * this.SQUARE_SIZE}px`;
+                    bottomHalf.style.height = `${4 * this.SQUARE_SIZE}px`;
+                    this.container.appendChild(bottomHalf);
+                }
+            }
+            const river = document.createElement('div');
+            river.className = 'river';
+            river.textContent = '楚 河   漢 界';
+            this.container.appendChild(river);
+            this.drawPalace(3, 0);
+            this.drawPalace(3, 7);
+            
+            this.drawPiecesAndInteractionLayer();
+        }
+
+        drawPalace(col, row) {
+            const palace = document.createElement('div');
+            palace.className = 'palace';
+            const x = col * this.SQUARE_SIZE;
+            const y = row * this.SQUARE_SIZE;
+            palace.style.left = `${x}px`;
+            palace.style.top = `${y}px`;
+            const line1 = document.createElement('div');
+            line1.className = 'palace-line';
+            line1.style.transform = 'rotate(-45deg)';
+            line1.style.transformOrigin = 'top left';
+            palace.appendChild(line1);
+            const line2 = document.createElement('div');
+            line2.className = 'palace-line';
+            line2.style.left = `${2 * this.SQUARE_SIZE}px`;
+            line2.style.transform = 'rotate(45deg)';
+            line2.style.transformOrigin = 'top left';
+            palace.appendChild(line2);
+            this.container.appendChild(palace);
+        }
+
+        drawPiecesAndInteractionLayer() {
+            this.container.querySelectorAll('.piece, .valid-move-dot, .interaction-point').forEach(el => el.remove());
+
+            for (let i = 0; i < this.game.ROWS * this.game.COLS; i++) {
+                const { row, col } = this.game.getCoords(i);
+                const piece = this.game.board[i];
+
+                const interactionPoint = document.createElement('div');
+                interactionPoint.style.position = 'absolute';
+                interactionPoint.style.left = `${col * this.SQUARE_SIZE - this.SQUARE_SIZE/2}px`;
+                interactionPoint.style.top = `${row * this.SQUARE_SIZE - this.SQUARE_SIZE/2}px`;
+                interactionPoint.style.width = `${this.SQUARE_SIZE}px`;
+                interactionPoint.style.height = `${this.SQUARE_SIZE}px`;
+                interactionPoint.style.zIndex = '4';
+                interactionPoint.style.cursor = 'pointer';
+                interactionPoint.addEventListener('click', () => this.onPointClick(i));
+                this.container.appendChild(interactionPoint);
+
+                if (piece) {
+                    const pieceEl = document.createElement('div');
+                    pieceEl.className = 'piece';
+                    const isRed = this.game.isRedPiece(piece);
+                    pieceEl.classList.add(isRed ? 'red-piece' : 'black-piece');
+                    pieceEl.textContent = this.pieceDisplay[piece.toLowerCase()][isRed ? 'red' : 'black'];
+                    
+                    pieceEl.style.left = `${col * this.SQUARE_SIZE - 27}px`;
+                    pieceEl.style.top = `${row * this.SQUARE_SIZE - 27}px`;
+
+                    if (this.selectedPieceIndex === i) pieceEl.classList.add('selected');
+                    
+                    const kingInCheck = this.game.isKingInCheck(this.game.isRedTurn);
+                    if (kingInCheck && piece.toLowerCase() === 'k' && this.game.isPieceOfCurrentTurn(piece)) {
+                        pieceEl.classList.add('check-highlight');
+                    }
+                    
+                    this.container.appendChild(pieceEl);
+                }
+            }
+
+            this.validMoves.forEach(i => {
+                const dot = document.createElement('div');
+                dot.className = 'valid-move-dot';
+                const { row, col } = this.game.getCoords(i);
+                dot.style.left = `${col * this.SQUARE_SIZE - 10}px`;
+                dot.style.top = `${row * this.SQUARE_SIZE - 10}px`;
+                dot.addEventListener('click', () => this.onPointClick(i));
+                this.container.appendChild(dot);
+            });
+        }
+
+        onPointClick(index) {
+            if (this.game.isGameOver || this.isTurnInProgress || this.game.isRedTurn !== this.humanPlayerIsRed) return;
+
+            if (this.selectedPieceIndex !== null) {
+                if (this.validMoves.includes(index)) {
+                    if (this.game.movePiece(this.selectedPieceIndex, index)) {
+                        this.selectedPieceIndex = null;
+                        this.validMoves = [];
+                        this.drawPiecesAndInteractionLayer();
+                        this.updateStatus();
+                        this.checkForAITurn();
+                    }
+                } else {
+                    this.selectedPieceIndex = null;
+                    this.validMoves = [];
+                    this.drawPiecesAndInteractionLayer();
+                }
+            } else {
+                const piece = this.game.board[index];
+                if (piece && this.game.isPieceOfCurrentTurn(piece)) {
+                    this.selectedPieceIndex = index;
+                    this.validMoves = this.game.getValidMoves(piece, index);
+                    this.drawPiecesAndInteractionLayer();
+                }
+            }
+        }
+        
+        checkForAITurn() {
+            if (this.game.isGameOver || this.game.isRedTurn === this.humanPlayerIsRed) return;
+
+            this.isTurnInProgress = true;
+            this.statusEl.textContent = 'AI is thinking...';
+
+            setTimeout(() => {
+                const move = this.ai.findBestMove();
+                if (move) {
+                    this.game.movePiece(move.from, move.to);
+                } else {
+                    this.game.isGameOver = true; // No moves for AI
+                }
+                this.drawPiecesAndInteractionLayer();
+                this.updateStatus();
+                this.isTurnInProgress = false;
+            }, 500);
+        }
+
+        updateStatus() {
+            if (this.game.isGameOver) {
+                this.statusEl.textContent = `Checkmate! ${!this.game.isRedTurn ? 'Red' : 'Black'} wins.`;
+            } else {
+                this.statusEl.textContent = `${this.game.isRedTurn ? 'Red' : 'Black'}'s Turn`;
+                if (this.game.isKingInCheck(this.game.isRedTurn)) {
+                    this.statusEl.textContent += ' (Check!)';
+                }
+            }
+        }
+    }
+
+    new GameUI('board-container');
+</script>
+</body>
+</html>
